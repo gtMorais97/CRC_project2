@@ -5,8 +5,9 @@ import keras.backend as K
 import numpy as np
 from GNN_layers import GNN_layer, MLP
 from utils import sample_pairs
+from random import randint
 
-class GNN_BC(keras.Model):
+class GNN_BC_2(keras.Model):
 
     '''
     *Each block is essentially half of the network (one block takes the regular adjacency matrix A,
@@ -21,7 +22,7 @@ class GNN_BC(keras.Model):
         self.num_nodes = num_nodes
 
         self.block = self.make_block(params, input_shape, num_nodes)
-        self.mlp = MLP(params, input_shape=num_hidden, output_shape=num_nodes, index=i)
+        self.mlp = MLP(params, input_shape=params['hidden_neurons_messaging_cells'], output_shape=num_nodes)
 
     def call(self, x):
         flat_adj_matrix = x[0]
@@ -47,11 +48,20 @@ class GNN_BC(keras.Model):
 
     def get_block_score(self, input):
         mlp_scores = []
-        for gnn_layer in block:
-            z = gnn_layer(input) #grey block
+        first_block = True
+        for gnn_layer in self.block:       
+            if not first_block:
+                z = gnn_layer(input)
+                z = tf.multiply(z, aux)
+                aux = z
+            else:
+                z = gnn_layer(input) #grey block
+                aux = z
 
             score = self.mlp(z) #mlp
             mlp_scores.append(score)
+
+            first_block = False
 
         block_score = tf.math.add_n(mlp_scores)
         return block_score
@@ -65,30 +75,31 @@ class GNN_BC(keras.Model):
         real_BCs = self.real_BCs
         with tf.GradientTape() as tape:
             scores = self.call(x)
-            pairs_list = sample_pairs(self.num_nodes, self.params['pairs_sample_size'])
-            #sorted_BCs = dict(sorted(real_BCs.items(), key=lambda item: -item[1]))
+            #pairs_list = sample_pairs(self.num_nodes, self.params['pairs_sample_size'])
             ranking = np.argsort(np.negative(list(real_BCs.values())))
-        
             total_loss=tf.constant(0, dtype=np.float32)
-            for pair in pairs_list:
-                rank_1 = int(pair[0])
-                rank_2 = int(pair[1])
+            for _ in range(self.params['pairs_sample_size']):
+                rank_1 = randint(0, self.num_nodes-1)
+                rank_2 = randint(0, self.num_nodes-1)
                 #real_difference = tf.constant(self.real_BCs[int(pair[0])] - self.real_BCs[int(pair[1])], dtype= np.float32)
                 #predicted_difference = tf.math.subtract( scores[0][int(pair[0])], scores[0][int(pair[1])] )
 
                 #y = 1 if tf.math.greater(predicted_difference, real_difference) else -1
                 #y = 1 if list(sorted_BCs.keys()).index(i) < list(sorted_BCs.keys()).index(j) else -1
                 y = -1. if rank_1>rank_2 else 1.
-                
+
                 pair_loss = self.loss_function(scores[0][ranking[rank_1]],
                                                scores[0][ranking[rank_2]],
                                                y,
                                                self.params['margin'])
                 total_loss = tf.math.add(total_loss, pair_loss)
 
+                del rank_1
+                del rank_2
 
 
+        print('calculating grads...')
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
-
+        print('finished')
         return {"loss": total_loss}

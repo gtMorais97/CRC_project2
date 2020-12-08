@@ -37,12 +37,12 @@ def get_graph(file, file_type="txt"):
     elif file_type == "csv":
         sep = ','
 
-    G = nx.Graph()
+    G = nx.DiGraph()
 
     with open(file, "r", encoding="utf-8") as graph:
         lines = graph.readlines()
 
-        for line in lines[4:]:
+        for line in lines:
             edge = [int(i) for i in line.split(sep)]
             G.add_edge(edge[0], edge[1])
 
@@ -57,3 +57,11 @@ def sample_pairs(num_nodes, sample_size):
         pairs.append((node1,node2))
 
     return np.asarray(pairs, dtype=np.float32)
+
+def clean_adj_matrix(adj_matrix, real_BCs):
+    aux = np.copy(adj_matrix)
+    for row_number, row in enumerate(aux):
+        if(real_BCs[row_number] == 0):        
+            aux[row_number] = 0
+     
+    return aux
